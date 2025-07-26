@@ -15,7 +15,7 @@ API_HASH = getenv("API_HASH")
 BOT_TOKEN = getenv("BOT_TOKEN")
 BOT_ID = getenv("BOT_ID")
 # -------------------------------------------------------
-OWNER_USERNAME = getenv("OWNER_USERNAME","purvibots")
+OWNER_USERNAME = getenv("OWNER_USERNAME","crush_hu_tera")
 # --------------------------------------------------------
 BOT_USERNAME = getenv("BOT_USERNAME" , "MayaMusicRobot")
 # --------------------------------------------------------
@@ -72,9 +72,9 @@ GIT_TOKEN = getenv(
 
 # ------------------------------------------------------------------------
 # -------------------------------------------------------------------------
-SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/About_badnam_xd")
-SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/+ogNOGbs9JCFlNjk9")
-CHAT = getenv("CHAT", "https://t.me/+ogNOGbs9JCFlNjk9")
+SUPPORT_CHANNEL = getenv("SUPPORT_CHANNEL", "https://t.me/bots_update_all")
+SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/bots_update_all")
+CHAT = getenv("CHAT", "https://t.me/bots_update_all")
 # ------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------
 

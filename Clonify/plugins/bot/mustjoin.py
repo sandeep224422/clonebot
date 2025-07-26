@@ -6,7 +6,7 @@ from Clonify import app
 
 #--------------------------
 
-MUST_JOIN = "About_badnam_xd"
+MUST_JOIN = "bots_update_all"
 
 #--------------------------
 
