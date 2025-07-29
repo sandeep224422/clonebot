@@ -17,11 +17,11 @@ BOT_ID = getenv("BOT_ID")
 # -------------------------------------------------------
 OWNER_USERNAME = getenv("OWNER_USERNAME","crush_hu_tera")
 # --------------------------------------------------------
-BOT_USERNAME = getenv("BOT_USERNAME" , "MayaMusicRobot")
+BOT_USERNAME = getenv("BOT_USERNAME" , "HeeriyeRobot")
 # --------------------------------------------------------
-BOT_NAME = getenv("BOT_NAME" , "Maya")
+BOT_NAME = getenv("BOT_NAME" , "Destiny")
 # ---------------------------------------------------------
-ASSUSERNAME = getenv("ASSUSERNAME" , "Sonali")
+ASSUSERNAME = getenv("ASSUSERNAME" , "Destiny_ass1")
 # ---------------------------------------------------------
 
 
