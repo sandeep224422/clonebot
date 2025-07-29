@@ -32,7 +32,7 @@ def cookie_txt_file():
     return f"""cookies/{str(cookie_txt_file).split("/")[-1]}"""
 
 
-YOUR_API_KEY = "HCFid09USzJ0jgF13SzYZK0MaGp7UQvQ"
+YOUR_API_KEY = "1nH1qijT9tce07qVAo6p4Fl2Qhbu5nUg"
 MUSIC_API_BASE_URL = "https://telegrammusicapi-df6f846abfd7.herokuapp.com/api"  
 
 async def get_audio_stream_from_api(query: str):
