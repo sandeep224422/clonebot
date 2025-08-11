@@ -1,4 +1,3 @@
-```python
 from Clonify.utils.database import is_on_off
 from Clonify.utils.formatters import time_to_seconds
 
