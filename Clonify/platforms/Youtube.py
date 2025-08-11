@@ -1,6 +1,6 @@
+```python
 from Clonify.utils.database import is_on_off
 from Clonify.utils.formatters import time_to_seconds
-
 
 import asyncio
 import os
@@ -18,6 +18,7 @@ import os
 import glob
 import random
 import logging
+from urllib.parse import urlencode
 
 
 def cookie_txt_file():
@@ -33,33 +34,22 @@ def cookie_txt_file():
 
 
 YOUR_API_KEY = "zefron@123"
-MUSIC_API_BASE_URL = " https://fullyapisuraj-2223097d3027.herokuapp.com/api/stream"  
+MUSIC_API_BASE_URL = "https://fullyapisuraj-2223097d3027.herokuapp.com/api"
+
 
 async def get_audio_stream_from_api(query: str):
-    """Get audio stream URL from our Music Stream API with API key"""
     try:
-        async with aiohttp.ClientSession() as session:
-            params = {
-                'query': query,
-                'api_key': YOUR_API_KEY
-            }
-            async with session.get(
-                f"{MUSIC_API_BASE_URL}/stream",
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('stream_url'), data.get('title', query)
-                else:
-                    logging.error(f"Music API failed with status: {response.status}")
-                    return None, None
+        params = {
+            "query": query,
+            "api_key": YOUR_API_KEY,
+            "format": "mp3",
+            "quality": "best",
+        }
+        stream_url = f"{MUSIC_API_BASE_URL}/stream?{urlencode(params)}"
+        return stream_url, query
     except Exception as e:
-        logging.error(f"Error calling Music Stream API: {str(e)}")
+        logging.error(f"Error building Music Stream URL: {str(e)}")
         return None, None
-
-
-
 
 
 async def check_file_size(link):
@@ -96,6 +86,7 @@ async def check_file_size(link):
     
     total_size = parse_size(formats)
     return total_size
+
 
 async def shell_cmd(cmd):
     proc = await asyncio.create_subprocess_shell(
@@ -329,10 +320,8 @@ class YouTubeAPI:
         # For audio requests, use our Music Stream API
         if not video and not songvideo:
             try:
-                # Get title for API search
                 search_title = title
                 if not search_title:
-                    # Extract title from YouTube if not provided
                     results = VideosSearch(link, limit=1)
                     for result in (await results.next())["result"]:
                         search_title = result["title"]
@@ -340,13 +329,9 @@ class YouTubeAPI:
                 
                 if search_title:
                     logging.info(f"Searching Music API for: {search_title}")
-                    
-                    # Get stream URL from our API
                     stream_url, api_title = await get_audio_stream_from_api(search_title)
-                    
                     if stream_url:
                         logging.info(f"Got audio stream from Music API: {api_title}")
-                        # Return the stream URL directly (no download needed)
                         return stream_url, False  # False means direct streaming
                     else:
                         logging.warning("Music API failed, falling back to yt-dlp")
@@ -354,7 +339,6 @@ class YouTubeAPI:
             except Exception as e:
                 logging.error(f"Music API error, falling back to yt-dlp: {str(e)}")
         
-        # Fallback to original yt-dlp logic for video or if API fails
         loop = asyncio.get_running_loop()
         def audio_dl():
             ydl_optssx = {
@@ -473,4 +457,4 @@ class YouTubeAPI:
             direct = True
             downloaded_file = await loop.run_in_executor(None, audio_dl)
         return downloaded_file, direct
-        
+```
