@@ -1,3 +1,5 @@
+# music_api_client.py
+
 from Clonify.utils.database import is_on_off
 from Clonify.utils.formatters import time_to_seconds
 
@@ -17,6 +19,9 @@ import glob
 import random
 import logging
 from urllib.parse import urlencode, urljoin
+
+# If you want to use AudioPiped/AudioFile in your bot, import these where you call join_call
+# from pytgcalls.types.input_stream import AudioPiped, AudioFile
 
 
 def cookie_txt_file() -> str:
@@ -44,22 +49,22 @@ async def get_audio_stream_from_api(
     timeout_sec: int = 60,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
-    Returns a direct URL to an audio file or streaming response URL if ready.
-    Falls back to None if the API returns 202 and does not complete within timeout.
+    Try to get a direct audio URL from the Zefron API.
+    Returns (url, query_used) if ready, else (None, None).
     """
     try:
         params = {"query": query, "format": fmt, "quality": quality}
         stream_url = f"{MUSIC_API_STREAM_ENDPOINT}?{urlencode(params)}"
 
         async with aiohttp.ClientSession() as session:
-            # Try the stream endpoint
+            # First attempt: directly call stream endpoint
             async with session.get(stream_url, allow_redirects=True) as resp:
                 content_type = resp.headers.get("Content-Type", "")
                 # If the server finished quickly, it returns audio directly
                 if resp.status == 200 and content_type.startswith("audio"):
                     return str(resp.url), query
 
-                # Otherwise, API returns 202 JSON with status/file URLs
+                # Otherwise, server returns 202 JSON with status/file URLs
                 if resp.status == 202:
                     data = await resp.json()
                     status_url = data.get("statusUrl")
@@ -67,7 +72,7 @@ async def get_audio_stream_from_api(
                     if not status_url or not file_url:
                         return None, None
 
-                    # Make absolute URLs
+                    # Absolutize URLs
                     if status_url.startswith("/"):
                         status_url = urljoin(BASE_URL, status_url)
                     if file_url.startswith("/"):
@@ -83,12 +88,13 @@ async def get_audio_stream_from_api(
                             j = await r2.json()
                             status = j.get("download", {}).get("status")
                             if status == "completed":
+                                # Return file URL to stream
                                 return file_url, query
                             if status == "failed":
                                 return None, None
                         await asyncio.sleep(1)
 
-                    # Timed out; let caller fallback
+                    # Timed out
                     return None, None
 
                 # Any other status → fallback
@@ -328,19 +334,6 @@ class YouTubeAPI:
                     )
         return formats_available, link
 
-    async def slider(self, link: str, query_type: int, videoid: Union[bool, str] = None):
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        a = VideosSearch(link, limit=10)
-        result = (await a.next()).get("result")
-        title = result[query_type]["title"]
-        duration_min = result[query_type]["duration"]
-        vidid = result[query_type]["id"]
-        thumbnail = result[query_type]["thumbnails"][0]["url"].split("?")[0]
-        return title, duration_min, thumbnail, vidid
-
     async def download(
         self,
         link: str,
@@ -351,7 +344,12 @@ class YouTubeAPI:
         songvideo: Union[bool, str] = None,
         format_id: Union[bool, str] = None,
         title: Union[bool, str] = None,
-    ):
+    ) -> Tuple[Optional[str], Optional[bool]]:
+        """
+        Returns (source, direct)
+          - If direct is False, source is a network URL (use AudioPiped with PyTgCalls)
+          - If direct is True, source is a local file path (use AudioFile with PyTgCalls)
+        """
         if videoid:
             link = self.base + link
 
@@ -370,8 +368,8 @@ class YouTubeAPI:
                     direct_url, api_title = await get_audio_stream_from_api(search_title)
                     if direct_url:
                         logging.info(f"Got audio stream from Music API: {api_title}")
-                        # Return URL for the player (not a local file)
-                        return direct_url, False  # treat as network URL
+                        # Return URL for the player (network source)
+                        return direct_url, False
                     else:
                         logging.warning("Music API pending/failed, falling back to yt-dlp")
             except Exception as e:
@@ -478,7 +476,7 @@ class YouTubeAPI:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await proc.communicate()
+                stdout, _ = await proc.communicate()
                 if stdout:
                     # Direct network stream URL
                     return stdout.decode().split("\n")[0], False
@@ -494,3 +492,25 @@ class YouTubeAPI:
         else:
             downloaded_file = await loop.run_in_executor(None, audio_dl)
             return downloaded_file, True
+
+
+# Example usage with PyTgCalls (call from your handler):
+# async def play_with_pytgcalls(PRO, chat_id: int, link_or_title: str):
+#     from pytgcalls.types.input_stream import AudioPiped, AudioFile
+#     source, direct = await YouTubeAPI().download(
+#         link=link_or_title,
+#         mystic=None,
+#         video=False,
+#         songaudio=False,
+#         songvideo=False,
+#         format_id=None,
+#         title=None,
+#     )
+#     if source is None:
+#         return
+#     if direct:
+#         # Local file path
+#         await PRO.join_call(chat_id, AudioFile(source))
+#     else:
+#         # Network URL from Zefron API (use URL, do NOT os.stat it)
+#         await PRO.join_call(chat_id, AudioPiped(source))
