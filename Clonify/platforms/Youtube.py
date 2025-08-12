@@ -6,7 +6,7 @@ import os
 import re
 import json
 import aiohttp
-from typing import Union
+from typing import Union, Optional, Tuple
 
 import yt_dlp
 from pyrogram.enums import MessageEntityType
@@ -16,7 +16,7 @@ from youtubesearchpython.__future__ import VideosSearch
 import glob
 import random
 import logging
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 
 
 def cookie_txt_file():
@@ -31,22 +31,70 @@ def cookie_txt_file():
     return f"cookies/{str(chosen).split('/')[-1]}"
 
 
+# Optional; not required by the API
 YOUR_API_KEY = "zefron@123"
-MUSIC_API_BASE_URL = "https://shreeapi-d165da120f71.herokuapp.com/api/downloads/stream"
+BASE_URL = "https://shreeapi-d165da120f71.herokuapp.com"
+MUSIC_API_STREAM_ENDPOINT = f"{BASE_URL}/api/downloads/stream"
 
 
-async def get_audio_stream_from_api(query: str):
+async def get_audio_stream_from_api(query: str, fmt: str = "mp3", quality: str = "320kbps", timeout_sec: int = 60) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Returns a direct URL to an audio file or streaming response URL if ready.
+    Falls back to None if the API returns 202 and does not complete within timeout.
+    """
     try:
         params = {
             "query": query,
-            "api_key": YOUR_API_KEY,
-            "format": "mp3",
-            "quality": "best",
+            "format": fmt,
+            "quality": quality,
         }
-        stream_url = f"{MUSIC_API_BASE_URL}/stream?{urlencode(params)}"
-        return stream_url, query
+        stream_url = f"{MUSIC_API_STREAM_ENDPOINT}?{urlencode(params)}"
+
+        async with aiohttp.ClientSession() as session:
+            # Try the stream endpoint
+            async with session.get(stream_url, allow_redirects=True) as resp:
+                # If the server was able to complete quickly, it directly returns audio
+                content_type = resp.headers.get("Content-Type", "")
+                if resp.status == 200 and content_type.startswith("audio"):
+                    return str(resp.url), query
+
+                # Otherwise, API returns 202 JSON with status/file URLs
+                if resp.status == 202:
+                    data = await resp.json()
+                    status_url = data.get("statusUrl")
+                    file_url = data.get("fileUrl")
+                    if not status_url or not file_url:
+                        return None, None
+
+                    # Make absolute URLs
+                    if status_url.startswith("/"):
+                        status_url = urljoin(BASE_URL, status_url)
+                    if file_url.startswith("/"):
+                        file_url = urljoin(BASE_URL, file_url)
+
+                    # Poll until completed or timeout
+                    end_time = asyncio.get_event_loop().time() + timeout_sec
+                    while asyncio.get_event_loop().time() < end_time:
+                        async with session.get(status_url) as r2:
+                            if r2.status != 200:
+                                await asyncio.sleep(1)
+                                continue
+                            j = await r2.json()
+                            status = j.get("download", {}).get("status")
+                            if status == "completed":
+                                return file_url, query
+                            if status == "failed":
+                                return None, None
+                        await asyncio.sleep(1)
+
+                    # Timed out; let caller fallback
+                    return None, None
+
+                # Any other status → fallback
+                return None, None
+
     except Exception as e:
-        logging.error(f"Error building Music Stream URL: {str(e)}")
+        logging.error(f"Music API error: {e}")
         return None, None
 
 
@@ -137,7 +185,7 @@ class YouTubeAPI:
                         return entity.url
         if offset in (None,):
             return None
-        return text[offset : offset + length]
+        return text[offset: offset + length]
 
     async def details(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
@@ -306,7 +354,7 @@ class YouTubeAPI:
         if videoid:
             link = self.base + link
 
-        # For audio requests, use our Music Stream API
+        # Prefer Music API for audio
         if not video and not songvideo:
             try:
                 search_title = title
@@ -318,13 +366,13 @@ class YouTubeAPI:
 
                 if search_title:
                     logging.info(f"Searching Music API for: {search_title}")
-                    stream_url, api_title = await get_audio_stream_from_api(search_title)
-                    if stream_url:
+                    direct_url, api_title = await get_audio_stream_from_api(search_title)
+                    if direct_url:
                         logging.info(f"Got audio stream from Music API: {api_title}")
-                        return stream_url, False  # direct streaming
+                        # Returning a URL for the player (not a local file)
+                        return direct_url, False
                     else:
-                        logging.warning("Music API failed, falling back to yt-dlp")
-
+                        logging.warning("Music API pending/failed, falling back to yt-dlp")
             except Exception as e:
                 logging.error(f"Music API error, falling back to yt-dlp: {str(e)}")
 
