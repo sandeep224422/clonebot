@@ -19,7 +19,7 @@ import logging
 from urllib.parse import urlencode, urljoin
 
 
-def cookie_txt_file():
+def cookie_txt_file() -> str:
     folder_path = f"{os.getcwd()}/cookies"
     filename = f"{os.getcwd()}/cookies/logs.csv"
     txt_files = glob.glob(os.path.join(folder_path, "*.txt"))
@@ -31,30 +31,31 @@ def cookie_txt_file():
     return f"cookies/{str(chosen).split('/')[-1]}"
 
 
-# Optional; not required by the API
+# Optional; not required by the API (server does not check it)
 YOUR_API_KEY = "zefron@123"
 BASE_URL = "https://shreeapi-d165da120f71.herokuapp.com"
 MUSIC_API_STREAM_ENDPOINT = f"{BASE_URL}/api/downloads/stream"
 
 
-async def get_audio_stream_from_api(query: str, fmt: str = "mp3", quality: str = "320kbps", timeout_sec: int = 60) -> Tuple[Optional[str], Optional[str]]:
+async def get_audio_stream_from_api(
+    query: str,
+    fmt: str = "mp3",
+    quality: str = "320kbps",
+    timeout_sec: int = 60,
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Returns a direct URL to an audio file or streaming response URL if ready.
     Falls back to None if the API returns 202 and does not complete within timeout.
     """
     try:
-        params = {
-            "query": query,
-            "format": fmt,
-            "quality": quality,
-        }
+        params = {"query": query, "format": fmt, "quality": quality}
         stream_url = f"{MUSIC_API_STREAM_ENDPOINT}?{urlencode(params)}"
 
         async with aiohttp.ClientSession() as session:
             # Try the stream endpoint
             async with session.get(stream_url, allow_redirects=True) as resp:
-                # If the server was able to complete quickly, it directly returns audio
                 content_type = resp.headers.get("Content-Type", "")
+                # If the server finished quickly, it returns audio directly
                 if resp.status == 200 and content_type.startswith("audio"):
                     return str(resp.url), query
 
@@ -369,8 +370,8 @@ class YouTubeAPI:
                     direct_url, api_title = await get_audio_stream_from_api(search_title)
                     if direct_url:
                         logging.info(f"Got audio stream from Music API: {api_title}")
-                        # Returning a URL for the player (not a local file)
-                        return direct_url, False
+                        # Return URL for the player (not a local file)
+                        return direct_url, False  # treat as network URL
                     else:
                         logging.warning("Music API pending/failed, falling back to yt-dlp")
             except Exception as e:
@@ -456,15 +457,15 @@ class YouTubeAPI:
         if songvideo:
             await loop.run_in_executor(None, song_video_dl)
             fpath = f"downloads/{title}.mp4"
-            return fpath
+            return fpath, True
         elif songaudio:
             await loop.run_in_executor(None, song_audio_dl)
             fpath = f"downloads/{title}.mp3"
-            return fpath
+            return fpath, True
         elif video:
             if await is_on_off(1):
-                direct = True
                 downloaded_file = await loop.run_in_executor(None, video_dl)
+                return downloaded_file, True
             else:
                 proc = await asyncio.create_subprocess_exec(
                     "yt-dlp",
@@ -479,20 +480,17 @@ class YouTubeAPI:
                 )
                 stdout, stderr = await proc.communicate()
                 if stdout:
-                    downloaded_file = stdout.decode().split("\n")[0]
-                    direct = False
+                    # Direct network stream URL
+                    return stdout.decode().split("\n")[0], False
                 else:
                     file_size = await check_file_size(link)
                     if not file_size:
-                        print("None file Size")
-                        return
+                        return None, None
                     total_size_mb = file_size / (1024 * 1024)
                     if total_size_mb > 250:
-                        print(f"File size {total_size_mb:.2f} MB exceeds the 100MB limit.")
-                        return None
-                    direct = True
+                        return None, None
                     downloaded_file = await loop.run_in_executor(None, video_dl)
+                    return downloaded_file, True
         else:
-            direct = True
             downloaded_file = await loop.run_in_executor(None, audio_dl)
-        return downloaded_file, direct
+            return downloaded_file, True
