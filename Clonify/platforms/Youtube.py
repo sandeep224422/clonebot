@@ -32,7 +32,7 @@ def cookie_txt_file():
 
 
 YOUR_API_KEY = "zefron@123"
-MUSIC_API_BASE_URL = "https://shreeapi-d165da120f71.herokuapp.com/api"
+MUSIC_API_BASE_URL = "https://shreeapi-d165da120f71.herokuapp.com/"
 
 
 async def get_audio_stream_from_api(query: str):
