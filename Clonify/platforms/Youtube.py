@@ -38,7 +38,7 @@ def cookie_txt_file() -> str:
 
 # Optional; not required by the API (server does not check it)
 YOUR_API_KEY = "zefron@123"
-BASE_URL = "https://shreeapi-d165da120f71.herokuapp.com"
+BASE_URL = "https://dashboard.heroku.com/apps/shreeramapi"
 MUSIC_API_STREAM_ENDPOINT = f"{BASE_URL}/api/downloads/stream"
 
 
