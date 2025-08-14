@@ -26,7 +26,6 @@ from Clonify.utils.formatters import time_to_seconds
 # Constants
 YOUR_API_KEY = "zefron@123"
 BASE_URL = "https://asliaaap-7a3650d5591c.herokuapp.com"
-MUSIC_API_STREAM_ENDPOINT = f"{BASE_URL}/api/download"
 
 # --------------------
 # Cookie helper
@@ -43,7 +42,7 @@ def cookie_txt_file() -> str:
     return f"cookies/{os.path.basename(chosen)}"
 
 # --------------------
-# Music API Client
+# Music API Client - FIXED VERSION
 # --------------------
 async def get_audio_stream_from_api(
     query: str,
@@ -56,44 +55,41 @@ async def get_audio_stream_from_api(
     Returns (url, query_used) if ready, else (None, None).
     """
     try:
-        params = {"query": query, "format": fmt, "quality": quality}
-        stream_url = f"{MUSIC_API_STREAM_ENDPOINT}?{urlencode(params)}"
-
+        # First, search for the video using the query
+        search_results = VideosSearch(query, limit=1)
+        video_id = None
+        
+        for result in (await search_results.next())["result"]:
+            video_id = result["id"]
+            break
+            
+        if not video_id:
+            logging.error("No video found for query")
+            return None, None
+            
+        # Now use the video ID to get download URL from your API
+        download_url = f"{BASE_URL}/api/download/{video_id}?quality=audio"
+        
+        headers = {
+            "X-API-Key": YOUR_API_KEY
+        }
+        
         async with aiohttp.ClientSession() as session:
-            async with session.get(stream_url, allow_redirects=True) as resp:
-                content_type = resp.headers.get("Content-Type", "")
-                if resp.status == 200 and content_type.startswith("audio"):
-                    return str(resp.url), query
-
-                if resp.status == 202:
-                    data = await resp.json()
-                    status_url = data.get("statusUrl")
-                    file_url = data.get("fileUrl")
-                    if not status_url or not file_url:
-                        return None, None
-
-                    if status_url.startswith("/"):
-                        status_url = urljoin(BASE_URL, status_url)
-                    if file_url.startswith("/"):
-                        file_url = urljoin(BASE_URL, file_url)
-
-                    end_time = asyncio.get_event_loop().time() + timeout_sec
-                    while asyncio.get_event_loop().time() < end_time:
-                        async with session.get(status_url) as r2:
-                            if r2.status != 200:
-                                await asyncio.sleep(1)
-                                continue
-                            j = await r2.json()
-                            status = j.get("download", {}).get("status")
-                            if status == "completed":
-                                return file_url, query
-                            if status == "failed":
-                                return None, None
-                        await asyncio.sleep(1)
-
+            async with session.get(download_url, headers=headers, allow_redirects=True) as resp:
+                if resp.status == 200:
+                    # Get the final URL after redirects
+                    final_url = str(resp.url)
+                    logging.info(f"Got direct download URL: {final_url}")
+                    return final_url, query
+                elif resp.status == 401:
+                    logging.error("API key authentication failed")
                     return None, None
-
-                return None, None
+                elif resp.status == 404:
+                    logging.error("Video not found or not available")
+                    return None, None
+                else:
+                    logging.error(f"API returned status {resp.status}")
+                    return None, None
 
     except Exception as e:
         logging.error(f"Music API error: {e}")
@@ -444,15 +440,65 @@ class YouTubeAPI:
             ydl = yt_dlp.YoutubeDL(ydl_opts)
             ydl.download([link])
 
-        if songaudio:
-            song_audio_dl()
-            return f"downloads/{title}.mp3", True
-        elif songvideo:
-            song_video_dl()
-            return f"downloads/{title}", True
+        if songvideo:
+            await loop.run_in_executor(None, song_video_dl)
+            fpath = f"downloads/{title}.mp4"
+            return fpath, True
+        elif songaudio:
+            await loop.run_in_executor(None, song_audio_dl)
+            fpath = f"downloads/{title}.mp3"
+            return fpath, True
         elif video:
-            path = video_dl()
-            return path, True
+            if await is_on_off(1):
+                downloaded_file = await loop.run_in_executor(None, video_dl)
+                return downloaded_file, True
+            else:
+                proc = await asyncio.create_subprocess_exec(
+                    "yt-dlp",
+                    "--cookies",
+                    cookie_txt_file(),
+                    "-g",
+                    "-f",
+                    "best[height<=?720][width<=?1280]",
+                    f"{link}",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await proc.communicate()
+                if stdout:
+                    # Direct network stream URL
+                    return stdout.decode().split("\n")[0], False
+                else:
+                    file_size = await check_file_size(link)
+                    if not file_size:
+                        return None, None
+                    total_size_mb = file_size / (1024 * 1024)
+                    if total_size_mb > 250:
+                        return None, None
+                    downloaded_file = await loop.run_in_executor(None, video_dl)
+                    return downloaded_file, True
         else:
-            path = audio_dl()
-            return path, True
+            downloaded_file = await loop.run_in_executor(None, audio_dl)
+            return downloaded_file, True
+
+
+# Example usage with PyTgCalls (call from your handler):
+# async def play_with_pytgcalls(PRO, chat_id: int, link_or_title: str):
+#     from pytgcalls.types.input_stream import AudioPiped, AudioFile
+#     source, direct = await YouTubeAPI().download(
+#         link=link_or_title,
+#         mystic=None,
+#         video=False,
+#         songaudio=False,
+#         songvideo=False,
+#         format_id=None,
+#         title=None,
+#     )
+#     if source is None:
+#         return
+#     if direct:
+#         # Local file path
+#         await PRO.join_call(chat_id, AudioFile(source))
+#     else:
+#         # Network URL from Music API (use URL, do NOT os.stat it)
+#         await PRO.join_call(chat_id, AudioPiped(source))
