@@ -42,7 +42,6 @@ def cookie_txt_file() -> str:
         file.write(f"Choosen File : {chosen}\n")
     return f"cookies/{os.path.basename(chosen)}"
 
-
 # --------------------
 # Music API Client
 # --------------------
@@ -100,7 +99,6 @@ async def get_audio_stream_from_api(
         logging.error(f"Music API error: {e}")
         return None, None
 
-
 # --------------------
 # Helpers
 # --------------------
@@ -139,7 +137,6 @@ async def check_file_size(link: str) -> Optional[int]:
 
     return parse_size(formats)
 
-
 async def shell_cmd(cmd: str) -> str:
     proc = await asyncio.create_subprocess_shell(
         cmd,
@@ -153,7 +150,6 @@ async def shell_cmd(cmd: str) -> str:
         else:
             return err.decode("utf-8")
     return out.decode("utf-8")
-
 
 # --------------------
 # YouTubeAPI Class
@@ -427,4 +423,36 @@ class YouTubeAPI:
             ydl.download([link])
 
         def song_audio_dl():
-           
+            formats = "bestaudio/best"
+            fpath = f"downloads/{title}.mp3"
+            ydl_opts = {
+                "format": formats,
+                "outtmpl": fpath,
+                "geo_bypass": True,
+                "nocheckcertificate": True,
+                "quiet": True,
+                "no_warnings": True,
+                "cookiefile": cookie_txt_file(),
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "192",
+                    }
+                ],
+            }
+            ydl = yt_dlp.YoutubeDL(ydl_opts)
+            ydl.download([link])
+
+        if songaudio:
+            song_audio_dl()
+            return f"downloads/{title}.mp3", True
+        elif songvideo:
+            song_video_dl()
+            return f"downloads/{title}", True
+        elif video:
+            path = video_dl()
+            return path, True
+        else:
+            path = audio_dl()
+            return path, True
