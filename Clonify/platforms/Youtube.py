@@ -26,7 +26,7 @@ from Clonify.utils.formatters import time_to_seconds
 # Constants
 YOUR_API_KEY = "zefron@123"
 BASE_URL = "https://asliaaap-7a3650d5591c.herokuapp.com"
-MUSIC_API_STREAM_ENDPOINT = f"{BASE_URL}/stream"
+MUSIC_API_STREAM_ENDPOINT = f"{BASE_URL}/api/download"
 
 # --------------------
 # Cookie helper
