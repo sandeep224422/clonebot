@@ -25,7 +25,7 @@ from Clonify.utils.formatters import time_to_seconds
 
 # Constants
 YOUR_API_KEY = "zefron@123"
-BASE_URL = "https://suraj-aee0dda05454.herokuapp.com"
+BASE_URL = "https://zefronapi.vercel.app"
 
 # --------------------
 # Cookie helper
