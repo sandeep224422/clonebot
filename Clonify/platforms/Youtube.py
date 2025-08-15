@@ -42,7 +42,7 @@ def cookie_txt_file() -> str:
     return f"cookies/{os.path.basename(chosen)}"
 
 # --------------------
-# Music API Client - FIXED VERSION
+# Music API Client - CORRECTED VERSION
 # --------------------
 async def get_audio_stream_from_api(
     query: str,
@@ -68,19 +68,40 @@ async def get_audio_stream_from_api(
             return None, None
             
         # Now use the video ID to get download URL from your API
-        download_url = f"{BASE_URL}/api/download/{video_id}?quality=audio"
+        # CORRECTED: Use /download endpoint with search parameter
+        download_url = f"{BASE_URL}/download"
+        
+        params = {
+            "search": query,
+            "api_key": YOUR_API_KEY
+        }
         
         headers = {
-            "X-API-Key": YOUR_API_KEY
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.get(download_url, headers=headers, allow_redirects=True) as resp:
+            async with session.get(download_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
                 if resp.status == 200:
-                    # Get the final URL after redirects
-                    final_url = str(resp.url)
-                    logging.info(f"Got direct download URL: {final_url}")
-                    return final_url, query
+                    data = await resp.json()
+                    
+                    # Check if we got formats data
+                    if "formats" in data and data["formats"]:
+                        # Find best audio format
+                        audio_formats = [f for f in data["formats"] if f.get("kind") in ["audio-only", "progressive"]]
+                        
+                        if audio_formats:
+                            # Sort by quality (prefer higher bitrate)
+                            best_audio = sorted(audio_formats, key=lambda x: x.get("abr", 0), reverse=True)[0]
+                            direct_url = best_audio.get("url")
+                            
+                            if direct_url:
+                                logging.info(f"Got direct audio URL: {direct_url}")
+                                return direct_url, query
+                    
+                    logging.warning("No audio formats found in API response")
+                    return None, None
+                    
                 elif resp.status == 401:
                     logging.error("API key authentication failed")
                     return None, None
@@ -91,8 +112,79 @@ async def get_audio_stream_from_api(
                     logging.error(f"API returned status {resp.status}")
                     return None, None
 
+    except asyncio.TimeoutError:
+        logging.error("API request timed out")
+        return None, None
     except Exception as e:
         logging.error(f"Music API error: {e}")
+        return None, None
+
+# Alternative method using fast-meta endpoint
+async def get_audio_stream_from_api_v2(
+    query: str,
+    timeout_sec: int = 60,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Alternative method using fast-meta endpoint for better compatibility.
+    """
+    try:
+        # Use fast-meta endpoint first to get video info
+        meta_url = f"{BASE_URL}/api/fast-meta"
+        
+        params = {
+            "search": query,
+            "api_key": YOUR_API_KEY
+        }
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(meta_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    
+                    if "link" in data and data["link"]:
+                        # Now get download info using the video URL
+                        download_url = f"{BASE_URL}/download"
+                        download_params = {
+                            "url": data["link"],
+                            "api_key": YOUR_API_KEY
+                        }
+                        
+                        async with session.get(download_url, params=download_params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as download_resp:
+                            if download_resp.status == 200:
+                                download_data = await download_resp.json()
+                                
+                                if "formats" in download_data and download_data["formats"]:
+                                    # Find best audio format
+                                    audio_formats = [f for f in download_data["formats"] if f.get("kind") in ["audio-only", "progressive"]]
+                                    
+                                    if audio_formats:
+                                        # Sort by quality
+                                        best_audio = sorted(audio_formats, key=lambda x: x.get("abr", 0), reverse=True)[0]
+                                        direct_url = best_audio.get("url")
+                                        
+                                        if direct_url:
+                                            logging.info(f"Got direct audio URL via fast-meta: {direct_url}")
+                                            return direct_url, query
+                    
+                    logging.warning("No audio stream found via fast-meta method")
+                    return None, None
+                    
+                elif resp.status == 401:
+                    logging.error("API key authentication failed")
+                    return None, None
+                else:
+                    logging.error(f"API returned status {resp.status}")
+                    return None, None
+
+    except asyncio.TimeoutError:
+        logging.error("API request timed out")
+        return None, None
+    except Exception as e:
+        logging.error(f"Music API v2 error: {e}")
         return None, None
 
 # --------------------
@@ -353,7 +445,12 @@ class YouTubeAPI:
 
                 if search_title:
                     logging.info(f"Searching Music API for: {search_title}")
+                    
+                    # Try both API methods
                     direct_url, api_title = await get_audio_stream_from_api(search_title)
+                    if not direct_url:
+                        direct_url, api_title = await get_audio_stream_from_api_v2(search_title)
+                    
                     if direct_url:
                         logging.info(f"Got audio stream from Music API: {api_title}")
                         # Return URL for the player (network source)
