@@ -41,6 +41,64 @@ def cookie_txt_file() -> str:
     return f"cookies/{os.path.basename(chosen)}"
 
 # --------------------
+# Test and Debug Functions
+# --------------------
+async def test_jiosaavn_api():
+    """
+    Test function to debug JioSaavn API endpoints and responses.
+    """
+    import aiohttp
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        # Test 1: Check if base URL is accessible
+        try:
+            async with session.get(BASE_URL, headers=headers, timeout=10) as resp:
+                logging.info(f"Base URL test - Status: {resp.status}")
+                if resp.status == 200:
+                    text = await resp.text()
+                    logging.info(f"Base URL response: {text[:200]}...")
+        except Exception as e:
+            logging.error(f"Base URL test failed: {e}")
+        
+        # Test 2: Test search endpoint
+        search_url = f"{BASE_URL}/search/songs"
+        params = {"query": "latest"}
+        
+        try:
+            async with session.get(search_url, params=params, headers=headers, timeout=10) as resp:
+                logging.info(f"Search endpoint test - Status: {resp.status}")
+                if resp.status == 200:
+                    data = await resp.json()
+                    logging.info(f"Search response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                    logging.info(f"Search response: {str(data)[:500]}...")
+                else:
+                    error_text = await resp.text()
+                    logging.error(f"Search endpoint error: {error_text}")
+        except Exception as e:
+            logging.error(f"Search endpoint test failed: {e}")
+        
+        # Test 3: Test trending endpoint
+        trending_url = f"{BASE_URL}/search/songs"
+        trending_params = {"query": "trending"}
+        
+        try:
+            async with session.get(trending_url, params=trending_params, headers=headers, timeout=10) as resp:
+                logging.info(f"Trending endpoint test - Status: {resp.status}")
+                if resp.status == 200:
+                    data = await resp.json()
+                    logging.info(f"Trending response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                    logging.info(f"Trending response: {str(data)[:500]}...")
+                else:
+                    error_text = await resp.text()
+                    logging.error(f"Trending endpoint error: {error_text}")
+        except Exception as e:
+            logging.error(f"Trending endpoint test failed: {e}")
+
+# --------------------
 # JioSaavn API Client - UPDATED VERSION
 # --------------------
 async def get_audio_stream_from_jiosaavn_api(
@@ -60,55 +118,111 @@ async def get_audio_stream_from_jiosaavn_api(
         }
         
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
+        
+        logging.info(f"Searching JioSaavn API with URL: {search_url} and params: {params}")
         
         async with aiohttp.ClientSession() as session:
             async with session.get(search_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
+                logging.info(f"JioSaavn search response status: {resp.status}")
+                
                 if resp.status == 200:
                     data = await resp.json()
+                    logging.info(f"JioSaavn search response data structure: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                     
-                    # Check if we got results
-                    if "data" in data and "results" in data["data"] and data["data"]["results"]:
+                    # Check if we got results - handle different possible response structures
+                    results = None
+                    if "data" in data and "results" in data["data"]:
+                        results = data["data"]["results"]
+                    elif "results" in data:
+                        results = data["results"]
+                    elif "data" in data and isinstance(data["data"], list):
+                        results = data["data"]
+                    
+                    if results and len(results) > 0:
                         # Get the first result
-                        first_song = data["data"]["results"][0]
+                        first_song = results[0]
+                        logging.info(f"First song result: {first_song.get('name', 'No name')} by {first_song.get('artists', {}).get('primary', [{}])[0].get('name', 'Unknown') if first_song.get('artists') else 'Unknown'}")
+                        
                         song_id = first_song.get("id")
                         
                         if song_id:
                             # Now get the song details with download URLs
                             song_url = f"{BASE_URL}/songs/{song_id}"
+                            logging.info(f"Fetching song details from: {song_url}")
                             
                             async with session.get(song_url, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as song_resp:
+                                logging.info(f"Song details response status: {song_resp.status}")
+                                
                                 if song_resp.status == 200:
                                     song_data = await song_resp.json()
+                                    logging.info(f"Song details data structure: {list(song_data.keys()) if isinstance(song_data, dict) else 'Not a dict'}")
                                     
+                                    # Handle different possible response structures
+                                    song_info = None
                                     if "data" in song_data and song_data["data"]:
-                                        song_info = song_data["data"][0]
-                                        
+                                        if isinstance(song_data["data"], list):
+                                            song_info = song_data["data"][0]
+                                        else:
+                                            song_info = song_data["data"]
+                                    elif "result" in song_data:
+                                        song_info = song_data["result"]
+                                    else:
+                                        song_info = song_data
+                                    
+                                    if song_info:
                                         # Get download URLs - prefer higher quality
                                         download_urls = song_info.get("downloadUrl", [])
+                                        if not download_urls:
+                                            download_urls = song_info.get("download_url", [])
+                                        if not download_urls:
+                                            download_urls = song_info.get("downloadUrls", [])
+                                        
+                                        logging.info(f"Found {len(download_urls)} download URLs")
                                         
                                         if download_urls:
                                             # Sort by quality (assuming higher index = better quality)
                                             # Get the best available quality
                                             best_url = None
-                                            for url_info in reversed(download_urls):
-                                                if url_info.get("url"):
+                                            for i, url_info in enumerate(reversed(download_urls)):
+                                                if isinstance(url_info, dict) and url_info.get("url"):
                                                     best_url = url_info["url"]
+                                                    logging.info(f"Selected download URL {len(download_urls) - i}: {best_url}")
+                                                    break
+                                                elif isinstance(url_info, str):
+                                                    best_url = url_info
+                                                    logging.info(f"Selected download URL {len(download_urls) - i}: {best_url}")
                                                     break
                                             
                                             if best_url:
                                                 logging.info(f"Got JioSaavn audio URL: {best_url}")
                                                 return best_url, query
+                                        else:
+                                            logging.warning("No download URLs found in song info")
+                                    else:
+                                        logging.warning("No song info found in response")
+                                else:
+                                    logging.error(f"Song details request failed with status {song_resp.status}")
+                                    if song_resp.status == 404:
+                                        logging.error("Song not found in JioSaavn database")
+                    else:
+                        logging.warning(f"No search results found for query: {query}")
+                        logging.info(f"Search response: {data}")
                     
                     logging.warning("No audio URLs found in JioSaavn API response")
                     return None, None
                     
                 elif resp.status == 404:
-                    logging.error("Song not found in JioSaavn")
+                    logging.error("Search endpoint not found - API might be down or endpoint changed")
                     return None, None
                 else:
                     logging.error(f"JioSaavn API returned status {resp.status}")
+                    try:
+                        error_text = await resp.text()
+                        logging.error(f"Error response: {error_text}")
+                    except:
+                        pass
                     return None, None
 
     except asyncio.TimeoutError:
@@ -135,17 +249,30 @@ async def get_audio_stream_from_jiosaavn_api_v2(
         }
         
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
+        
+        logging.info(f"JioSaavn v2: Searching with query: {query}")
         
         async with aiohttp.ClientSession() as session:
             async with session.get(search_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
+                logging.info(f"JioSaavn v2: Search response status: {resp.status}")
+                
                 if resp.status == 200:
                     data = await resp.json()
                     
-                    if "data" in data and "results" in data["data"] and data["data"]["results"]:
+                    # Handle different response structures
+                    results = None
+                    if "data" in data and "results" in data["data"]:
+                        results = data["data"]["results"]
+                    elif "results" in data:
+                        results = data["results"]
+                    elif "data" in data and isinstance(data["data"], list):
+                        results = data["data"]
+                    
+                    if results and len(results) > 0:
                         # Get the first result
-                        first_song = data["data"]["results"][0]
+                        first_song = results[0]
                         song_id = first_song.get("id")
                         
                         if song_id:
@@ -156,16 +283,30 @@ async def get_audio_stream_from_jiosaavn_api_v2(
                                 if song_resp.status == 200:
                                     song_data = await song_resp.json()
                                     
+                                    # Handle different response structures
+                                    song_info = None
                                     if "data" in song_data and song_data["data"]:
-                                        song_info = song_data["data"][0]
-                                        
+                                        if isinstance(song_data["data"], list):
+                                            song_info = song_data["data"][0]
+                                        else:
+                                            song_info = song_data["data"]
+                                    elif "result" in song_data:
+                                        song_info = song_data["result"]
+                                    else:
+                                        song_info = song_data
+                                    
+                                    if song_info:
                                         # Try to get the best quality download URL
                                         download_urls = song_info.get("downloadUrl", [])
+                                        if not download_urls:
+                                            download_urls = song_info.get("download_url", [])
+                                        if not download_urls:
+                                            download_urls = song_info.get("downloadUrls", [])
                                         
                                         if download_urls:
                                             # Look for the best quality URL
                                             for url_info in download_urls:
-                                                if url_info.get("url"):
+                                                if isinstance(url_info, dict) and url_info.get("url"):
                                                     # Check if it's a valid audio URL
                                                     url = url_info["url"]
                                                     if any(ext in url.lower() for ext in ['.mp3', '.m4a', '.aac', '.ogg']):
@@ -174,19 +315,22 @@ async def get_audio_stream_from_jiosaavn_api_v2(
                                             
                                             # If no specific audio extension found, use the first available
                                             for url_info in download_urls:
-                                                if url_info.get("url"):
+                                                if isinstance(url_info, dict) and url_info.get("url"):
                                                     logging.info(f"Got JioSaavn URL via v2: {url_info['url']}")
                                                     return url_info["url"], query
+                                                elif isinstance(url_info, str):
+                                                    logging.info(f"Got JioSaavn URL via v2: {url_info}")
+                                                    return url_info, query
                     
                     logging.warning("No audio stream found via JioSaavn v2 method")
                     return None, None
                     
                 else:
-                    logging.error(f"JioSaavn API returned status {resp.status}")
+                    logging.error(f"JioSaavn API v2 returned status {resp.status}")
                     return None, None
 
     except asyncio.TimeoutError:
-        logging.error("JioSaavn API request timed out")
+        logging.error("JioSaavn API v2 request timed out")
         return None, None
     except Exception as e:
         logging.error(f"JioSaavn API v2 error: {e}")
@@ -462,6 +606,11 @@ class YouTubeAPI:
                         return direct_url, False
                     else:
                         logging.warning("JioSaavn API pending/failed, falling back to yt-dlp")
+                        # Run API test to debug issues
+                        try:
+                            await test_jiosaavn_api()
+                        except Exception as test_e:
+                            logging.error(f"API test failed: {test_e}")
             except Exception as e:
                 logging.error(f"JioSaavn API error, falling back to yt-dlp: {str(e)}")
 
