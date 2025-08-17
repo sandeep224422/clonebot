@@ -1,49 +1,10 @@
-# music_api_client.py
-
-import asyncio
-import os
-import re
-import json
-import glob
-import random
-import logging
-from urllib.parse import urlencode, urljoin
-from typing import Union, Optional, Tuple
-
 import aiohttp
-import yt_dlp
-from pyrogram.enums import MessageEntityType
-from pyrogram.types import Message
-from youtubesearchpython.__future__ import VideosSearch
+import asyncio
+import logging
+from typing import Optional, Tuple
 
-# If you want to use AudioPiped/AudioFile in your bot, import these where you call join_call:
-# from pytgcalls.types.input_stream import AudioPiped, AudioFile
+BASE_API_URL = "https://apikeyy-zeta.vercel.app/api"
 
-# Replace with actual function or import from your project
-from Clonify.utils.database import is_on_off
-from Clonify.utils.formatters import time_to_seconds
-
-# Constants
-YOUR_API_KEY = "zefron@123"
-BASE_URL = "https://zefronapi.vercel.app"
-
-# --------------------
-# Cookie helper
-# --------------------
-def cookie_txt_file() -> str:
-    folder_path = os.path.join(os.getcwd(), "cookies")
-    filename = os.path.join(os.getcwd(), "cookies", "logs.csv")
-    txt_files = glob.glob(os.path.join(folder_path, "*.txt"))
-    if not txt_files:
-        raise FileNotFoundError("No .txt files found in the specified folder.")
-    chosen = random.choice(txt_files)
-    with open(filename, "a") as file:
-        file.write(f"Choosen File : {chosen}\n")
-    return f"cookies/{os.path.basename(chosen)}"
-
-# --------------------
-# Music API Client - CORRECTED VERSION
-# --------------------
 async def get_audio_stream_from_api(
     query: str,
     fmt: str = "mp3",
@@ -51,551 +12,77 @@ async def get_audio_stream_from_api(
     timeout_sec: int = 60,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
-    Try to get a direct audio URL from the Music API.
-    Returns (url, query_used) if ready, else (None, None).
+    Get direct audio URL from new API.
+    Returns (url, query) or (None, None).
     """
     try:
-        # First, search for the video using the query
-        search_results = VideosSearch(query, limit=1)
-        video_id = None
-        
-        for result in (await search_results.next())["result"]:
-            video_id = result["id"]
-            break
-            
-        if not video_id:
-            logging.error("No video found for query")
-            return None, None
-            
-        # Now use the video ID to get download URL from your API
-        # CORRECTED: Use /download endpoint with search parameter
-        download_url = f"{BASE_URL}/download"
-        
-        params = {
-            "search": query,
-            "api_key": YOUR_API_KEY
-        }
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
+        download_url = f"{BASE_API_URL}/download"
+        params = {"search": query}
+        headers = {"User-Agent": "Mozilla/5.0"}
+
         async with aiohttp.ClientSession() as session:
             async with session.get(download_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    
-                    # Check if we got formats data
-                    if "formats" in data and data["formats"]:
-                        # Find best audio format
-                        audio_formats = [f for f in data["formats"] if f.get("kind") in ["audio-only", "progressive"]]
-                        
+                    if "formats" in data:
+                        audio_formats = [f for f in data["formats"] if f.get("kind") in ("audio-only", "progressive")]
                         if audio_formats:
-                            # Sort by quality (prefer higher bitrate)
                             best_audio = sorted(audio_formats, key=lambda x: x.get("abr", 0), reverse=True)[0]
                             direct_url = best_audio.get("url")
-                            
                             if direct_url:
-                                logging.info(f"Got direct audio URL: {direct_url}")
+                                logging.info(f"Audio URL found: {direct_url}")
                                 return direct_url, query
-                    
-                    logging.warning("No audio formats found in API response")
-                    return None, None
-                    
-                elif resp.status == 401:
-                    logging.error("API key authentication failed")
-                    return None, None
-                elif resp.status == 404:
-                    logging.error("Video not found or not available")
+                    logging.warning("No audio formats found.")
                     return None, None
                 else:
-                    logging.error(f"API returned status {resp.status}")
+                    logging.error(f"API response status: {resp.status}")
                     return None, None
-
     except asyncio.TimeoutError:
-        logging.error("API request timed out")
+        logging.error("Request timed out")
         return None, None
     except Exception as e:
-        logging.error(f"Music API error: {e}")
+        logging.error(f"Error fetching audio: {e}")
         return None, None
 
-# Alternative method using fast-meta endpoint
 async def get_audio_stream_from_api_v2(
     query: str,
     timeout_sec: int = 60,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
-    Alternative method using fast-meta endpoint for better compatibility.
+    Alternative method using /fast-meta then /download endpoint.
     """
     try:
-        # Use fast-meta endpoint first to get video info
-        meta_url = f"{BASE_URL}/api/fast-meta"
-        
-        params = {
-            "search": query,
-            "api_key": YOUR_API_KEY
-        }
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
+        meta_url = f"{BASE_API_URL}/fast-meta"
+        params = {"search": query}
+        headers = {"User-Agent": "Mozilla/5.0"}
+
         async with aiohttp.ClientSession() as session:
             async with session.get(meta_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    
                     if "link" in data and data["link"]:
-                        # Now get download info using the video URL
-                        download_url = f"{BASE_URL}/download"
-                        download_params = {
-                            "url": data["link"],
-                            "api_key": YOUR_API_KEY
-                        }
-                        
-                        async with session.get(download_url, params=download_params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as download_resp:
-                            if download_resp.status == 200:
-                                download_data = await download_resp.json()
-                                
-                                if "formats" in download_data and download_data["formats"]:
-                                    # Find best audio format
-                                    audio_formats = [f for f in download_data["formats"] if f.get("kind") in ["audio-only", "progressive"]]
-                                    
+                        download_url = f"{BASE_API_URL}/download"
+                        download_params = {"url": data["link"]}
+
+                        async with session.get(download_url, params=download_params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as dl_resp:
+                            if dl_resp.status == 200:
+                                dl_data = await dl_resp.json()
+                                if "formats" in dl_data:
+                                    audio_formats = [f for f in dl_data["formats"] if f.get("kind") in ("audio-only", "progressive")]
                                     if audio_formats:
-                                        # Sort by quality
                                         best_audio = sorted(audio_formats, key=lambda x: x.get("abr", 0), reverse=True)[0]
                                         direct_url = best_audio.get("url")
-                                        
                                         if direct_url:
-                                            logging.info(f"Got direct audio URL via fast-meta: {direct_url}")
+                                            logging.info(f"Audio URL found (v2): {direct_url}")
                                             return direct_url, query
-                    
-                    logging.warning("No audio stream found via fast-meta method")
-                    return None, None
-                    
-                elif resp.status == 401:
-                    logging.error("API key authentication failed")
+                    logging.warning("No audio found in fast-meta response.")
                     return None, None
                 else:
-                    logging.error(f"API returned status {resp.status}")
+                    logging.error(f"Fast-meta response status: {resp.status}")
                     return None, None
-
     except asyncio.TimeoutError:
-        logging.error("API request timed out")
+        logging.error("Request timed out")
         return None, None
     except Exception as e:
-        logging.error(f"Music API v2 error: {e}")
+        logging.error(f"Error in v2 fetch: {e}")
         return None, None
-
-# --------------------
-# Helpers
-# --------------------
-async def check_file_size(link: str) -> Optional[int]:
-    async def get_format_info(link_):
-        proc = await asyncio.create_subprocess_exec(
-            "yt-dlp",
-            "--cookies",
-            cookie_txt_file(),
-            "-J",
-            link_,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            print(f"Error:\n{stderr.decode()}")
-            return None
-        return json.loads(stdout.decode())
-
-    def parse_size(formats):
-        total_size = 0
-        for f in formats:
-            if "filesize" in f:
-                total_size += f["filesize"]
-        return total_size
-
-    info = await get_format_info(link)
-    if info is None:
-        return None
-
-    formats = info.get("formats", [])
-    if not formats:
-        print("No formats found.")
-        return None
-
-    return parse_size(formats)
-
-async def shell_cmd(cmd: str) -> str:
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    out, err = await proc.communicate()
-    if err:
-        if "unavailable videos are hidden" in err.decode("utf-8").lower():
-            return out.decode("utf-8")
-        else:
-            return err.decode("utf-8")
-    return out.decode("utf-8")
-
-# --------------------
-# YouTubeAPI Class
-# --------------------
-class YouTubeAPI:
-    def __init__(self):
-        self.base = "https://www.youtube.com/watch?v="
-        self.regex = r"(?:youtube\.com|youtu\.be)"
-        self.listbase = "https://youtube.com/playlist?list="
-
-    async def exists(self, link: str, videoid: Union[bool, str] = None) -> bool:
-        if videoid:
-            link = self.base + link
-        return bool(re.search(self.regex, link))
-
-    async def url(self, message_1: Message) -> Union[str, None]:
-        messages = [message_1]
-        if message_1.reply_to_message:
-            messages.append(message_1.reply_to_message)
-
-        text = ""
-        offset = None
-        length = None
-        for message in messages:
-            if offset:
-                break
-            if message.entities:
-                for entity in message.entities:
-                    if entity.type == MessageEntityType.URL:
-                        text = message.text or message.caption
-                        offset, length = entity.offset, entity.length
-                        break
-            elif message.caption_entities:
-                for entity in message.caption_entities:
-                    if entity.type == MessageEntityType.TEXT_LINK:
-                        return entity.url
-        if offset is None:
-            return None
-        return text[offset : offset + length]
-
-    async def details(
-        self, link: str, videoid: Union[bool, str] = None
-    ) -> Tuple[str, str, int, str, str]:
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            title = result["title"]
-            duration_min = result["duration"]
-            thumbnail = result["thumbnails"][0]["url"].split("?")[0]
-            vidid = result["id"]
-            if duration_min == "None":
-                duration_sec = 0
-            else:
-                duration_sec = int(time_to_seconds(duration_min))
-            return title, duration_min, duration_sec, thumbnail, vidid
-
-    async def title(self, link: str, videoid: Union[bool, str] = None) -> Optional[str]:
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            return result["title"]
-
-    async def duration(self, link: str, videoid: Union[bool, str] = None) -> Optional[str]:
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            return result["duration"]
-
-    async def thumbnail(self, link: str, videoid: Union[bool, str] = None) -> Optional[str]:
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            return result["thumbnails"][0]["url"].split("?")[0]
-
-    async def video(self, link: str, videoid: Union[bool, str] = None) -> Tuple[int, str]:
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        proc = await asyncio.create_subprocess_exec(
-            "yt-dlp",
-            "--cookies",
-            cookie_txt_file(),
-            "-g",
-            "-f",
-            "best[height<=?720][width<=?1280]",
-            link,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if stdout:
-            return 1, stdout.decode().split("\n")[0]
-        else:
-            return 0, stderr.decode()
-
-    async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None) -> list:
-        if videoid:
-            link = self.listbase + link
-        if "&" in link:
-            link = link.split("&")[0]
-        playlist = await shell_cmd(
-            f"yt-dlp -i --get-id --flat-playlist --cookies {cookie_txt_file()} --playlist-end {limit} --skip-download {link}"
-        )
-        try:
-            result = playlist.split("\n")
-            result = [x for x in result if x != ""]
-        except Exception:
-            result = []
-        return result
-
-    async def track(self, link: str, videoid: Union[bool, str] = None) -> Tuple[dict, str]:
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        results = VideosSearch(link, limit=1)
-        for result in (await results.next())["result"]:
-            title = result["title"]
-            duration_min = result["duration"]
-            vidid = result["id"]
-            yturl = result["link"]
-            thumbnail = result["thumbnails"][0]["url"].split("?")[0]
-        track_details = {
-            "title": title,
-            "link": yturl,
-            "vidid": vidid,
-            "duration_min": duration_min,
-            "thumb": thumbnail,
-        }
-        return track_details, vidid
-
-    async def formats(self, link: str, videoid: Union[bool, str] = None) -> Tuple[list, str]:
-        if videoid:
-            link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
-        ytdl_opts = {"quiet": True, "cookiefile": cookie_txt_file()}
-        ydl = yt_dlp.YoutubeDL(ytdl_opts)
-        with ydl:
-            formats_available = []
-            r = ydl.extract_info(link, download=False)
-            for f in r["formats"]:
-                try:
-                    str(f["format"])
-                    _ = f["filesize"]
-                    _ = f["format_id"]
-                    _ = f["ext"]
-                    _ = f["format_note"]
-                except Exception:
-                    continue
-                if "dash" not in str(f["format"]).lower():
-                    formats_available.append(
-                        {
-                            "format": f["format"],
-                            "filesize": f["filesize"],
-                            "format_id": f["format_id"],
-                            "ext": f["ext"],
-                            "format_note": f["format_note"],
-                            "yturl": link,
-                        }
-                    )
-        return formats_available, link
-
-    async def download(
-        self,
-        link: str,
-        mystic,
-        video: Union[bool, str] = None,
-        videoid: Union[bool, str] = None,
-        songaudio: Union[bool, str] = None,
-        songvideo: Union[bool, str] = None,
-        format_id: Union[bool, str] = None,
-        title: Union[bool, str] = None,
-    ) -> Tuple[Optional[str], Optional[bool]]:
-        """
-        Returns (source, direct)
-          - If direct is False, source is a network URL (use AudioPiped with PyTgCalls)
-          - If direct is True, source is a local file path (use AudioFile with PyTgCalls)
-        """
-        if videoid:
-            link = self.base + link
-
-        # Prefer Music API for audio if not video or song video
-        if not video and not songvideo:
-            try:
-                search_title = title
-                if not search_title:
-                    results = VideosSearch(link, limit=1)
-                    for result in (await results.next())["result"]:
-                        search_title = result["title"]
-                        break
-
-                if search_title:
-                    logging.info(f"Searching Music API for: {search_title}")
-                    
-                    # Try both API methods
-                    direct_url, api_title = await get_audio_stream_from_api(search_title)
-                    if not direct_url:
-                        direct_url, api_title = await get_audio_stream_from_api_v2(search_title)
-                    
-                    if direct_url:
-                        logging.info(f"Got audio stream from Music API: {api_title}")
-                        # Return URL for the player (network source)
-                        return direct_url, False
-                    else:
-                        logging.warning("Music API pending/failed, falling back to yt-dlp")
-            except Exception as e:
-                logging.error(f"Music API error, falling back to yt-dlp: {str(e)}")
-
-        loop = asyncio.get_running_loop()
-
-        def audio_dl():
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": "downloads/%(id)s.%(ext)s",
-                "geo_bypass": True,
-                "nocheckcertificate": True,
-                "quiet": True,
-                "cookiefile": cookie_txt_file(),
-                "no_warnings": True,
-            }
-            ydl = yt_dlp.YoutubeDL(ydl_opts)
-            info = ydl.extract_info(link, False)
-            filepath = os.path.join("downloads", f"{info['id']}.{info['ext']}")
-            if os.path.exists(filepath):
-                return filepath
-            ydl.download([link])
-            return filepath
-
-        def video_dl():
-            ydl_opts = {
-                "format": "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio[ext=m4a])",
-                "outtmpl": "downloads/%(id)s.%(ext)s",
-                "geo_bypass": True,
-                "nocheckcertificate": True,
-                "quiet": True,
-                "cookiefile": cookie_txt_file(),
-                "no_warnings": True,
-            }
-            ydl = yt_dlp.YoutubeDL(ydl_opts)
-            info = ydl.extract_info(link, False)
-            filepath = os.path.join("downloads", f"{info['id']}.{info['ext']}")
-            if os.path.exists(filepath):
-                return filepath
-            ydl.download([link])
-            return filepath
-
-        def song_video_dl():
-            formats = f"{format_id}+140"
-            fpath = f"downloads/{title}"
-            ydl_opts = {
-                "format": formats,
-                "outtmpl": fpath,
-                "geo_bypass": True,
-                "nocheckcertificate": True,
-                "quiet": True,
-                "no_warnings": True,
-                "cookiefile": cookie_txt_file(),
-                "prefer_ffmpeg": True,
-                "merge_output_format": "mp4",
-            }
-            ydl = yt_dlp.YoutubeDL(ydl_opts)
-            ydl.download([link])
-
-        def song_audio_dl():
-            formats = "bestaudio/best"
-            fpath = f"downloads/{title}.mp3"
-            ydl_opts = {
-                "format": formats,
-                "outtmpl": fpath,
-                "geo_bypass": True,
-                "nocheckcertificate": True,
-                "quiet": True,
-                "no_warnings": True,
-                "cookiefile": cookie_txt_file(),
-                "postprocessors": [
-                    {
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "mp3",
-                        "preferredquality": "192",
-                    }
-                ],
-            }
-            ydl = yt_dlp.YoutubeDL(ydl_opts)
-            ydl.download([link])
-
-        if songvideo:
-            await loop.run_in_executor(None, song_video_dl)
-            fpath = f"downloads/{title}.mp4"
-            return fpath, True
-        elif songaudio:
-            await loop.run_in_executor(None, song_audio_dl)
-            fpath = f"downloads/{title}.mp3"
-            return fpath, True
-        elif video:
-            if await is_on_off(1):
-                downloaded_file = await loop.run_in_executor(None, video_dl)
-                return downloaded_file, True
-            else:
-                proc = await asyncio.create_subprocess_exec(
-                    "yt-dlp",
-                    "--cookies",
-                    cookie_txt_file(),
-                    "-g",
-                    "-f",
-                    "best[height<=?720][width<=?1280]",
-                    f"{link}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await proc.communicate()
-                if stdout:
-                    # Direct network stream URL
-                    return stdout.decode().split("\n")[0], False
-                else:
-                    file_size = await check_file_size(link)
-                    if not file_size:
-                        return None, None
-                    total_size_mb = file_size / (1024 * 1024)
-                    if total_size_mb > 250:
-                        return None, None
-                    downloaded_file = await loop.run_in_executor(None, video_dl)
-                    return downloaded_file, True
-        else:
-            downloaded_file = await loop.run_in_executor(None, audio_dl)
-            return downloaded_file, True
-
-
-# Example usage with PyTgCalls (call from your handler):
-# async def play_with_pytgcalls(PRO, chat_id: int, link_or_title: str):
-#     from pytgcalls.types.input_stream import AudioPiped, AudioFile
-#     source, direct = await YouTubeAPI().download(
-#         link=link_or_title,
-#         mystic=None,
-#         video=False,
-#         songaudio=False,
-#         songvideo=False,
-#         format_id=None,
-#         title=None,
-#     )
-#     if source is None:
-#         return
-#     if direct:
-#         # Local file path
-#         await PRO.join_call(chat_id, AudioFile(source))
-#     else:
-#         # Network URL from Music API (use URL, do NOT os.stat it)
-#         await PRO.join_call(chat_id, AudioPiped(source))
