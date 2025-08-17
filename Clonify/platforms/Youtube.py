@@ -24,7 +24,7 @@ from Clonify.utils.database import is_on_off
 from Clonify.utils.formatters import time_to_seconds
 
 # Constants - Updated for JioSaavn API
-BASE_URL = "https://apikeyy-zeta.vercel.app"
+BASE_URL = "https://apikeyy-zeta.vercel.app/api"
 
 # --------------------
 # Cookie helper
@@ -131,9 +131,9 @@ async def get_audio_stream_from_jiosaavn_api(
                     data = await resp.json()
                     logging.info(f"JioSaavn search response data structure: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                     
-                    # Check if we got results - handle different possible response structures
+                    # Check if we got results - handle the correct response structure
                     results = None
-                    if "data" in data and "results" in data["data"]:
+                    if data.get("success") and "data" in data and "results" in data["data"]:
                         results = data["data"]["results"]
                     elif "results" in data:
                         results = data["results"]
@@ -143,7 +143,15 @@ async def get_audio_stream_from_jiosaavn_api(
                     if results and len(results) > 0:
                         # Get the first result
                         first_song = results[0]
-                        logging.info(f"First song result: {first_song.get('name', 'No name')} by {first_song.get('artists', {}).get('primary', [{}])[0].get('name', 'Unknown') if first_song.get('artists') else 'Unknown'}")
+                        song_name = first_song.get('name', 'No name')
+                        artist_name = 'Unknown'
+                        if first_song.get('artists'):
+                            if isinstance(first_song['artists'], dict):
+                                artist_name = first_song['artists'].get('primary', 'Unknown')
+                            elif isinstance(first_song['artists'], list) and len(first_song['artists']) > 0:
+                                artist_name = first_song['artists'][0].get('name', 'Unknown')
+                        
+                        logging.info(f"First song result: {song_name} by {artist_name}")
                         
                         song_id = first_song.get("id")
                         
@@ -159,9 +167,9 @@ async def get_audio_stream_from_jiosaavn_api(
                                     song_data = await song_resp.json()
                                     logging.info(f"Song details data structure: {list(song_data.keys()) if isinstance(song_data, dict) else 'Not a dict'}")
                                     
-                                    # Handle different possible response structures
+                                    # Handle the correct response structure
                                     song_info = None
-                                    if "data" in song_data and song_data["data"]:
+                                    if song_data.get("success") and "data" in song_data and song_data["data"]:
                                         if isinstance(song_data["data"], list):
                                             song_info = song_data["data"][0]
                                         else:
@@ -188,7 +196,8 @@ async def get_audio_stream_from_jiosaavn_api(
                                             for i, url_info in enumerate(reversed(download_urls)):
                                                 if isinstance(url_info, dict) and url_info.get("url"):
                                                     best_url = url_info["url"]
-                                                    logging.info(f"Selected download URL {len(download_urls) - i}: {best_url}")
+                                                    quality = url_info.get("quality", "unknown")
+                                                    logging.info(f"Selected download URL {len(download_urls) - i} ({quality}): {best_url}")
                                                     break
                                                 elif isinstance(url_info, str):
                                                     best_url = url_info
@@ -261,9 +270,9 @@ async def get_audio_stream_from_jiosaavn_api_v2(
                 if resp.status == 200:
                     data = await resp.json()
                     
-                    # Handle different response structures
+                    # Handle the correct response structure
                     results = None
-                    if "data" in data and "results" in data["data"]:
+                    if data.get("success") and "data" in data and "results" in data["data"]:
                         results = data["data"]["results"]
                     elif "results" in data:
                         results = data["results"]
@@ -283,9 +292,9 @@ async def get_audio_stream_from_jiosaavn_api_v2(
                                 if song_resp.status == 200:
                                     song_data = await song_resp.json()
                                     
-                                    # Handle different response structures
+                                    # Handle the correct response structure
                                     song_info = None
-                                    if "data" in song_data and song_data["data"]:
+                                    if song_data.get("success") and "data" in song_data and song_data["data"]:
                                         if isinstance(song_data["data"], list):
                                             song_info = song_data["data"][0]
                                         else:
